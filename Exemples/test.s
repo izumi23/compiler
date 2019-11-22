@@ -1,5 +1,12 @@
-    .section .text
-    .global main
+        .text
+        .globl main
+        .type  main, @function
 main:
-    movq    $6, %rax
-    ret
+        pushq  %rbp
+        movq   %rsp, %rbp
+        movq   $45, %rax
+        movq   %rax, -4(%rbp)
+        movq   $32, %rax
+        movq   %rax, -8(%rbp)
+        leave
+        ret

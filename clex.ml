@@ -86,7 +86,7 @@ let parse_dec yytext tend =
 
 # 88 "clex.ml"
 let __ocaml_lex_tables = {
-  Lexing.lex_base = 
+  Lexing.lex_base =
    "\000\000\144\255\145\255\118\000\147\255\148\255\156\255\162\255\
     \163\255\164\255\165\255\002\000\168\255\169\255\170\255\171\255\
     \031\000\035\000\068\000\072\000\096\000\074\000\076\000\093\000\
@@ -122,7 +122,7 @@ let __ocaml_lex_tables = {
     \248\255\249\255\250\255\251\255\252\255\028\001\020\043\253\255\
     \083\043\251\255\252\255\253\255\197\000\028\043\216\042\252\255\
     \253\255\254\255\198\000\013\000\253\255\254\255\255\255";
-  Lexing.lex_backtrk = 
+  Lexing.lex_backtrk =
    "\255\255\255\255\255\255\109\000\255\255\255\255\255\255\255\255\
     \255\255\255\255\255\255\088\000\255\255\255\255\255\255\255\255\
     \098\000\089\000\096\000\097\000\095\000\104\000\102\000\101\000\
@@ -158,7 +158,7 @@ let __ocaml_lex_tables = {
     \255\255\255\255\255\255\255\255\255\255\002\000\002\000\255\255\
     \255\255\255\255\255\255\255\255\001\000\000\000\255\255\255\255\
     \255\255\255\255\000\000\255\255\255\255\255\255\255\255";
-  Lexing.lex_default = 
+  Lexing.lex_default =
    "\002\000\000\000\000\000\255\255\000\000\000\000\000\000\000\000\
     \000\000\000\000\000\000\255\255\000\000\000\000\000\000\000\000\
     \255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
@@ -194,7 +194,7 @@ let __ocaml_lex_tables = {
     \000\000\000\000\000\000\000\000\000\000\255\255\255\255\000\000\
     \255\255\000\000\000\000\000\000\255\255\255\255\255\255\000\000\
     \000\000\000\000\255\255\021\001\000\000\000\000\000\000";
-  Lexing.lex_trans = 
+  Lexing.lex_trans =
    "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\
     \000\000\003\000\003\000\251\000\003\000\003\000\003\000\000\000\
     \000\000\000\000\000\000\000\000\000\000\246\000\255\255\022\001\
@@ -1614,7 +1614,7 @@ let __ocaml_lex_tables = {
     \000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\
     \000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\
     \000\000\000\000\000\000\009\001";
-  Lexing.lex_check = 
+  Lexing.lex_check =
    "\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
     \255\255\000\000\000\000\251\000\000\000\000\000\000\000\255\255\
     \255\255\255\255\255\255\255\255\255\255\244\000\245\000\019\001\
@@ -3034,22 +3034,22 @@ let __ocaml_lex_tables = {
     \255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
     \255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\
     \255\255\255\255\255\255\008\001";
-  Lexing.lex_base_code = 
+  Lexing.lex_base_code =
    "";
-  Lexing.lex_backtrk_code = 
+  Lexing.lex_backtrk_code =
    "";
-  Lexing.lex_default_code = 
+  Lexing.lex_default_code =
    "";
-  Lexing.lex_trans_code = 
+  Lexing.lex_trans_code =
    "";
-  Lexing.lex_check_code = 
+  Lexing.lex_check_code =
    "";
-  Lexing.lex_code = 
+  Lexing.lex_code =
    "";
 }
 
 let rec ctoken lexbuf =
-    __ocaml_lex_ctoken_rec lexbuf 0
+   __ocaml_lex_ctoken_rec lexbuf 0
 and __ocaml_lex_ctoken_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3647,11 +3647,11 @@ and __ocaml_lex_ctoken_rec lexbuf __ocaml_lex_state =
         ( EOF )
 # 3649 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_ctoken_rec lexbuf __ocaml_lex_state
 
 and comment lexbuf =
-    __ocaml_lex_comment_rec lexbuf 239
+   __ocaml_lex_comment_rec lexbuf 239
 and __ocaml_lex_comment_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3669,11 +3669,11 @@ and __ocaml_lex_comment_rec lexbuf __ocaml_lex_state =
         ( fatal (Some (!cfile, !cline, !ccol, !cline, !ccol)) "end of file reached inside comment" )
 # 3671 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_comment_rec lexbuf __ocaml_lex_state
 
 and inlcomment lexbuf =
-    __ocaml_lex_inlcomment_rec lexbuf 244
+   __ocaml_lex_inlcomment_rec lexbuf 244
 and __ocaml_lex_inlcomment_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3686,11 +3686,11 @@ and __ocaml_lex_inlcomment_rec lexbuf __ocaml_lex_state =
               ( count (Lexing.lexeme lexbuf); inlcomment lexbuf )
 # 3688 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_inlcomment_rec lexbuf __ocaml_lex_state
 
 and string lexbuf =
-    __ocaml_lex_string_rec lexbuf 247
+   __ocaml_lex_string_rec lexbuf 247
 and __ocaml_lex_string_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3763,11 +3763,11 @@ and __ocaml_lex_string_rec lexbuf __ocaml_lex_state =
         ( fatal (Some (!cfile, !cline, !ccol, !cline, !ccol)) "end of file reached inside string literal" )
 # 3765 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_string_rec lexbuf __ocaml_lex_state
 
 and line lexbuf =
-    __ocaml_lex_line_rec lexbuf 264
+   __ocaml_lex_line_rec lexbuf 264
 and __ocaml_lex_line_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3799,11 +3799,11 @@ and __ocaml_lex_line_rec lexbuf __ocaml_lex_state =
         ( fatal (Some (!cfile, !cline, !ccol, !cline, !ccol)) "end of file reached inside # directive" )
 # 3801 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_line_rec lexbuf __ocaml_lex_state
 
 and line2 lexbuf =
-    __ocaml_lex_line2_rec lexbuf 270
+   __ocaml_lex_line2_rec lexbuf 270
 and __ocaml_lex_line2_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3830,11 +3830,11 @@ and __ocaml_lex_line2_rec lexbuf __ocaml_lex_state =
         ( fatal (Some (!cfile, !cline, !ccol, !cline, !ccol)) "end of file reached inside # directive" )
 # 3832 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_line2_rec lexbuf __ocaml_lex_state
 
 and line3 lexbuf =
-    __ocaml_lex_line3_rec lexbuf 275
+   __ocaml_lex_line3_rec lexbuf 275
 and __ocaml_lex_line3_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
@@ -3852,7 +3852,7 @@ and __ocaml_lex_line3_rec lexbuf __ocaml_lex_state =
          ( fatal (Some (!cfile, !cline, !ccol, !cline, !ccol)) "end of file reached inside # directive" )
 # 3854 "clex.ml"
 
-  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
+  | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf;
       __ocaml_lex_line3_rec lexbuf __ocaml_lex_state
 
 ;;

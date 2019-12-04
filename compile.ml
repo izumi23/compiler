@@ -12,10 +12,16 @@ remplir ce giga patern matching*)
 
 
 let compile out decl_list =
-  let todo s = (*Printf.fprintf out "#TODO %s\n" s\n*) () in
+
+
+  let todo s = Printf.fprintf out "#TODO %s\n" s in
   let p = Printf.fprintf in
   let var_count = ref 0 in
   let var = ref (Hashtbl.create 8) in
+  let global_var = ref true in
+  let var_location = ref "" in
+
+
 
   let rec compile_decl_list = function
   | [] -> ()
@@ -23,20 +29,51 @@ let compile out decl_list =
 
 
 
+  and compile_mop = function
+
+  | M_MINUS -> p out "        negq    %%rax\n"
+  | M_NOT -> p out "        notq    %%rax\n"
+  | M_POST_INC -> p out "        addq    $1, %s\n" !var_location
+  | M_POST_DEC -> p out "        subq    $1, %s\n" !var_location
+
+  | M_PRE_INC ->
+      p out "        addq    $1, %s\n" !var_location;
+      p out "        addq    $1, %%rax\n"
+
+  | M_PRE_DEC ->
+      p out "        subq    $1, %s\n" !var_location;
+      p out "        subq    $1, %%rax\n"
+
+
+
   and compile_expr = function
 
+  | VAR s ->
+      if Hashtbl.mem !var s then begin
+        let i = Hashtbl.find !var s in
+        var_location := Printf.sprintf "%d(%%rbp)" (-8*i);
+        p out "        movq    %s, %%rax\n" !var_location
+      end
+      else todo "Variable globale"
+
   | CST n ->
-      p out "        movq   $%d, %%rax\n" n;
+      p out "        movq    $%d, %%rax\n" n;
 
   | SET_VAR (s, (_, e)) ->
       compile_expr e;
-      begin
-      match Hashtbl.find_opt !var s with
-      | None -> failwith "variable non existante"
-      | Some i -> p out "        movq   %%rax, %d(%%rbp)\n" (-4*i)
+      if Hashtbl.mem !var s then begin
+        let i = Hashtbl.find !var s in
+        var_location := Printf.sprintf "%d(%%rbp)" (-8*i);
+        p out "        movq    %%rax, %s\n" !var_location
       end
+      else todo "Variable globale"
+
+  | OP1 (mop, (_, e)) ->
+      compile_expr e;
+      compile_mop mop;
 
   | _ -> todo "a completer"
+
 
 
 
@@ -45,21 +82,24 @@ let compile out decl_list =
   | CDECL (_, s) ->
       incr var_count;
       Hashtbl.add !var s !var_count;
+      if !global_var then todo "Cas d'une variable globale"
 
   | CFUN (_, s, vdl, lc) ->
+      global_var := false;
       var_count := 0;
       var := Hashtbl.create 8;
-      p out "        .globl %s\n        .type  %s, @function\n%s:\n" s s s;
-      p out "        pushq  %%rbp\n        movq   %%rsp, %%rbp\n";
+      p out "        .globl  %s\n        .type   %s, @function\n%s:\n" s s s;
+      p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
       List.iter compile_decl vdl;
       compile_code lc
+
 
 
 
   and compile_code (_,c) = match c with
 
   | CBLOCK (vdl, lcl) ->
-      todo ("cblock ");
+      (*a completer*)
       List.iter compile_decl vdl;
       List.iter compile_code lcl
 

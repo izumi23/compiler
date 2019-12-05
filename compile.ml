@@ -18,6 +18,8 @@ let compile out decl_list =
   let p = Printf.fprintf in
   let var_count = ref 0 in
   let var = ref (Hashtbl.create 8) in
+  let functions = ref [] in
+  let arg_registers = [|"%rdi"; "%rsi"; "%rdx"; "%rcx"; "%r8"; "%r9"|] in
 
 
 
@@ -29,6 +31,7 @@ let compile out decl_list =
       Printf.sprintf "%d(%%rbp)" (-8*i)
     else Printf.sprintf "%s(%%rip)" s
   in
+
 
 
 
@@ -55,8 +58,10 @@ let compile out decl_list =
   and first_expr (_, e) = match e with
 
   (*le seul cas important!*)
+
   | STRING s when not (Hashtbl.mem strings s) ->
-      p out "LC%d:\n        .string %S\n" !string_count s;
+      p out "        .align 8\n";
+      p out ".LC%d:\n        .string %S\n" !string_count s;
       Hashtbl.add strings s !string_count;
       incr string_count
 
@@ -108,6 +113,16 @@ let compile out decl_list =
 
 
 
+  and push_arg i = function
+  | [] -> ()
+  | e::t ->
+      compile_expr e;
+      if i < 6 then p out "        movq    %%rax, %s\n" arg_registers.(i)
+      else p out "        pushq   %%rax\n";
+      push_arg (i-1) t
+
+
+
   and compile_expr (_, e) = match e with
 
   | VAR s ->
@@ -116,9 +131,19 @@ let compile out decl_list =
   | CST n ->
       p out "        movq    $%d, %%rax\n" n;
 
+  | STRING s ->
+      p out "        leaq    .LC%d(%%rip), %%rax\n" (Hashtbl.find strings s)
+
   | SET_VAR (s, e) ->
       compile_expr e;
       p out "        movq    %%rax, %s\n" (var_location s)
+
+  | CALL (s, lel) ->
+      if List.length lel > 6 && List.length lel mod 2 = 1 then
+        p out "        subq    $8, %%rsp\n";
+      push_arg (List.length lel - 1) (List.rev lel);
+      if List.mem s !functions then p out "        call    %s\n" s
+      else p out "        call    %s@PLT\n"s
 
   | OP1 (mop, e) ->
       compile_mop mop e;
@@ -135,6 +160,7 @@ let compile out decl_list =
       else (incr var_count; Hashtbl.add !var s !var_count)
 
   | CFUN (_, s, vdl, lc) ->
+      functions := s :: !functions;
       var_count := 0;
       var := Hashtbl.create 8;
       p out "        .globl  %s\n" s;
@@ -151,7 +177,7 @@ let compile out decl_list =
   | CBLOCK (vdl, lcl) ->
       compile_decl_list false vdl;
       if !var_count > 0 then
-        p out "        subq    $%d, %%rsp\n" (8* !var_count);
+        p out "        subq    $%d, %%rsp\n" (8*(!var_count+(!var_count mod 2)));
       List.iter compile_code lcl
 
   | CRETURN leo ->

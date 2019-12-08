@@ -188,6 +188,17 @@ let compile out decl_list =
       push_args (i-1) t
 
 
+  (*Lit l'argument numéro i d'une fonction*)
+
+  and pull_args i s =
+    if i < 6 then
+      let r = arg_registers.(i) in
+      p out "        movq    %s, %d(%%rbp)\n" r (-8*(i+1))
+    else begin
+      p out "        movq    %d(%%rbp), %%rax\n" (8*(i-4));
+      p out "        movq    %%rax, %d(%%rbp)\n" (-8*(i+1))
+    end
+
 
 
   and compile_expr (_, e) = match e with
@@ -233,8 +244,15 @@ let compile out decl_list =
       p out "        .globl  %s\n" s;
       p out "        .type   %s, @function\n%s:\n" s s;
       p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
+
+      let n = List.length vdl in
+      (if n > 0 then
+        let offset = 8*(n + (n mod 2)) in
+        p out "        subq    $%d, %%rsp\n" offset);
       compile_decl_list false vdl;
-      compile_code lc
+      List.iteri pull_args vdl;
+      if n mod 2 = 1 then new_empty_local_var env;
+      compile_code lc;
 
 
 
@@ -243,13 +261,11 @@ let compile out decl_list =
 
   | CBLOCK (vdl, lcl) ->
       let n = List.length vdl in
-      if n > 0 then
+      (if n > 0 then
         let offset = 8*(n + (n mod 2)) in
-        p out "        subq    $%d, %%rsp\n" offset;
-      (*espace supplémentaire réservé lorsque le nombre de variables est
-      impair, pour maintenir %rsp aligné sur 16 octets*)
-      if n mod 2 = 1 then new_empty_local_var env;
+        p out "        subq    $%d, %%rsp\n" offset);
       compile_decl_list false vdl;
+      if n mod 2 = 1 then new_empty_local_var env;
       List.iter compile_code lcl
 
   | CRETURN leo ->

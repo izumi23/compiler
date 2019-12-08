@@ -56,8 +56,6 @@ let new_local_var env s =
 let new_empty_local_var env =
   env.local_var_count <- env.local_var_count + 1
 
-let local_var_count env = env.local_var_count
-
 let var_location env s =
   if Hashtbl.mem env.local_var s then
     let i = Hashtbl.find env.local_var s in
@@ -105,7 +103,7 @@ let compile out decl_list =
 
 
 
-(*Fonctions pour une première lecture, pour stocker les chaînes de caractères*)
+  (*Fonctions pour une première lecture, pour stocker les chaînes de caractères*)
 
   let rec first_decl_list lcl = List.iter first_decl lcl
 
@@ -140,7 +138,7 @@ let compile out decl_list =
 
 
 
-(*Fonctions principales qui compilent le code*)
+  (*Fonctions principales qui compilent le code*)
 
 
   let rec compile_decl_list globl = function
@@ -173,47 +171,48 @@ let compile out decl_list =
       p out "        subq    $1, %s\n" (var_location env s);
       p out "        subq    $1, %%rax\n"
 
-  | _ -> todo "a[i]++"
+  | _ -> todo "a[i]++ ?"
 
 
 
 
-(*Appelé lors d'un CALL, compile les arguments donnés à la fonction appelée.
+  (*Appelé lors d'un CALL, compile les arguments donnés à la fonction appelée.
   Pour cela on conserve dans i le rang du prochain argument à traiter.*)
 
   and push_args i = function
   | [] -> ()
   | e::t ->
-      if i < 6 then compile_expr ~dest:arg_registers.(i) e
-      else (compile_expr e; p out "        pushq   %%rax");
+      compile_expr e;
+      if i < 6 then p out "        movq    %%rax, %s\n" arg_registers.(i)
+      else p out "        pushq   %%rax\n";
       push_args (i-1) t
 
 
 
 
-  and compile_expr ?(dest="%rax") (_, e) = match e with
+  and compile_expr (_, e) = match e with
 
   | VAR s ->
-      p out "        movq    %s, %s\n" (var_location env s) dest
+      p out "        movq    %s, %%rax\n" (var_location env s)
 
   | CST n ->
-      p out "        movq    $%d, %s\n" n dest
+      p out "        movq    $%d, %%rax\n" n
 
   | STRING s ->
-      p out "        leaq    %s, %s\n" (string_location env s) dest
+      p out "        leaq    %s, %%rax\n" (string_location env s)
 
   | SET_VAR (s, e) ->
-      compile_expr ~dest:dest e;
-      p out "        movq    %s, %s\n" dest (var_location env s);
+      compile_expr e;
+      p out "        movq    %%rax, %s\n" (var_location env s);
 
   | CALL (s, lel) ->
       let n = List.length lel in
+      (*on conserve l'alignement de %rsp sur 16 octets*)
       if n > 6 && n mod 2 = 1 then p out "        subq    $8, %%rsp\n";
       push_args (n-1) (List.rev lel);
       if exists_function env s then p out "        call    %s\n" s
       else p out "        call    %s@PLT\n" s;
-      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)));
-      if dest != "%rax" then p out "        movq    %%rax, %s\n" dest
+      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)))
 
   | OP1 (mop, e) ->
       compile_mop mop e;
@@ -247,6 +246,8 @@ let compile out decl_list =
       if n > 0 then
         let offset = 8*(n + (n mod 2)) in
         p out "        subq    $%d, %%rsp\n" offset;
+      (*espace supplémentaire réservé lorsque le nombre de variables est
+      impair, pour maintenir %rsp aligné sur 16 octets*)
       if n mod 2 = 1 then new_empty_local_var env;
       compile_decl_list false vdl;
       List.iter compile_code lcl

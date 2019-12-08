@@ -10,44 +10,102 @@ revenir sur ce buffer ctrl x o
 remplir ce giga patern matching*)
 
 
+(*Questions:
+- Quand utilise-t-on a[i]? (et notamment SET_ARRAY x[e1]=e2). En effet le type
+  int* n'existe pas
+- Une fonction peut-elle retourner un void? Sinon, à quoi sert return; ?*)
+
+
+
+
+
+
+
+
+
+(*___________________________Le type environnement_________________________*)
+
+
+
+type environment = {
+  mutable functions: string list;
+
+  mutable local_var_count: int;           (*espace alloué sur la pile*)
+  local_var: (string, int) Hashtbl.t;     (*emplacement de chaque variable*)
+
+  mutable string_count: int;
+  strings: (string, int) Hashtbl.t;       (*label de chaque string*)
+
+  mutable if_count: int;
+  mutable while_count: int
+}
+
+
+let new_environment () = {
+  functions = [];
+  local_var_count = 0; local_var = Hashtbl.create 8;
+  string_count = 0; strings = Hashtbl.create 8;
+  if_count = 0; while_count = 0
+}
+
+
+let new_local_var env s =
+  env.local_var_count <- env.local_var_count + 1;
+  Hashtbl.add env.local_var s env.local_var_count
+
+let new_empty_local_var env =
+  env.local_var_count <- env.local_var_count + 1
+
+let local_var_count env = env.local_var_count
+
+let var_location env s =
+  if Hashtbl.mem env.local_var s then
+    let i = Hashtbl.find env.local_var s in
+    Printf.sprintf "%d(%%rbp)" (-8*i)
+  else Printf.sprintf "%s(%%rip)" s
+
+
+let new_string env s =
+  Hashtbl.add env.strings s env.string_count;
+  env.string_count <- env.string_count + 1
+
+let string_count env = env.string_count
+
+let exists_string env s =
+  Hashtbl.mem env.strings s
+
+let string_location env s =
+  Printf.sprintf ".LC%d(%%rip)" (Hashtbl.find env.strings s)
+
+
+let new_function env s =
+  env.functions <- s :: env.functions;
+  env.local_var_count <- 0;
+  Hashtbl.reset env.local_var
+
+let exists_function env s = List.mem s env.functions
+
+
+
+
+
+
+(*___________________________La fonction principale___________________________*)
+
+
 
 let compile out decl_list =
 
 
   let todo s = Printf.fprintf out "#TODO %s\n" s in
   let p = Printf.fprintf in
-
-
-
-(*var associe à chaque variable locale sa position relative sur la pile.
-  Pour cela on maintient à jour le compteur var_count.*)
-  let var_count = ref 0 in
-  let var = ref (Hashtbl.create 8) in
-
-(*Une liste des noms de fonctions*)
-  let functions = ref [] in
-
   let arg_registers = [|"%rdi"; "%rsi"; "%rdx"; "%rcx"; "%r8"; "%r9"|] in
-
-
-
-
-(*Renvoie l'adresse de la variable s, selon qu'elle soit locale ou globale*)
-
-  let var_location s =
-    if Hashtbl.mem !var s then
-      let i = Hashtbl.find !var s in
-      Printf.sprintf "%d(%%rbp)" (-8*i)
-    else Printf.sprintf "%s(%%rip)" s
-  in
+  let env = new_environment () in
 
 
 
 
 (*Fonctions pour une première lecture, pour stocker les chaînes de caractères*)
-
-  let strings = Hashtbl.create 8 in
-  let string_count = ref 0 in
 
   let rec first_decl_list lcl = List.iter first_decl lcl
 
@@ -66,11 +124,10 @@ let compile out decl_list =
 
   (*le seul cas important!*)
 
-  | STRING s when not (Hashtbl.mem strings s) ->
+  | STRING s when not (exists_string env s) ->
       p out "        .align 8\n";
-      p out ".LC%d:\n        .string %S\n" !string_count s;
-      Hashtbl.add strings s !string_count;
-      incr string_count
+      p out ".LC%d:\n        .string %S\n" (string_count env) s;
+      new_string env s
 
   | CALL (_, lel) -> List.iter first_expr lel
   | EIF (_, e1, e2) -> first_expr e1; first_expr e2
@@ -103,20 +160,20 @@ let compile out decl_list =
       p out "        notq    %%rax\n"
 
   | M_POST_INC, VAR s ->
-      p out "        addq    $1, %s\n" (var_location s)
+      p out "        addq    $1, %s\n" (var_location env s)
 
   | M_POST_DEC, VAR s ->
-      p out "        subq    $1, %s\n" (var_location s)
+      p out "        subq    $1, %s\n" (var_location env s)
 
   | M_PRE_INC, VAR s ->
-      p out "        addq    $1, %s\n" (var_location s);
+      p out "        addq    $1, %s\n" (var_location env s);
       p out "        addq    $1, %%rax\n"
 
   | M_PRE_DEC, VAR s ->
-      p out "        subq    $1, %s\n" (var_location s);
+      p out "        subq    $1, %s\n" (var_location env s);
       p out "        subq    $1, %%rax\n"
 
-  | _ -> failwith "cas impossible"
+  | _ -> todo "a[i]++"
 
 
 
@@ -134,37 +191,35 @@ let compile out decl_list =
 
 
 
-(*Quelques optimisations pour les cas VAR, CST et STRING, où l'on écrit
-  directement sur un registre donné ou la pile, selon la valeur de dest.*)
-
   and compile_expr dest (_, e) = match e with
 
   | VAR s ->
-      if dest = "STACK" then p out "        pushq   %s\n" (var_location s)
-      else p out "        movq    %s, %s\n" (var_location s) dest
+      if dest = "STACK" then p out "        pushq   %s\n" (var_location env s)
+      else p out "        movq    %s, %s\n" (var_location env s) dest
 
   | CST n ->
       if dest = "STACK" then p out "        pushq   $%d\n" n
       else p out "        movq    $%d, %s\n" n dest
 
   | STRING s ->
-      let loc = Hashtbl.find strings s in
+      let loc = string_location env s in
       if dest = "STACK" then begin
-        p out "        leaq    .LC%d(%%rip), %%rax\n" loc;
+        p out "        leaq    %s, %%rax\n" loc;
         p out "        pushq   %%rax\n"
       end
-      else p out "        leaq    .LC%d(%%rip), %s\n" loc dest
+      else p out "        leaq    %s, %s\n" loc dest
 
   | SET_VAR (s, e) ->
       compile_expr "%rax" e;
-      p out "        movq    %%rax, %s\n" (var_location s)
+      p out "        movq    %%rax, %s\n" (var_location env s)
 
   | CALL (s, lel) ->
-      if List.length lel > 6 && List.length lel mod 2 = 1 then
-        p out "        subq    $8, %%rsp\n";
-      push_args (List.length lel - 1) (List.rev lel);
-      if List.mem s !functions then p out "        call    %s\n" s
-      else p out "        call    %s@PLT\n"s
+      let n = List.length lel in
+      if n > 6 && n mod 2 = 1 then p out "        subq    $8, %%rsp\n";
+      push_args (n-1) (List.rev lel);
+      if exists_function env s then p out "        call    %s\n" s
+      else p out "        call    %s@PLT\n" s;
+      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)))
 
   | OP1 (mop, e) ->
       compile_mop mop e;
@@ -178,12 +233,10 @@ let compile out decl_list =
 
   | CDECL (_, s) ->
       if globl then p out "        .comm   %s,8,8\n" s
-      else (incr var_count; Hashtbl.add !var s !var_count)
+      else new_local_var env s
 
   | CFUN (_, s, vdl, lc) ->
-      functions := s :: !functions;
-      var_count := 0;
-      var := Hashtbl.create 8;
+      new_function env s;
       p out "        .globl  %s\n" s;
       p out "        .type   %s, @function\n%s:\n" s s;
       p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
@@ -200,7 +253,7 @@ let compile out decl_list =
       if n > 0 then
         let offset = 8*(n + (n mod 2)) in
         p out "        subq    $%d, %%rsp\n" offset;
-      if n mod 2 = 1 then incr var_count;
+      if n mod 2 = 1 then new_empty_local_var env;
       compile_decl_list false vdl;
       List.iter compile_code lcl
 

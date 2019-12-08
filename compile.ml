@@ -152,11 +152,11 @@ let compile out decl_list =
   and compile_mop mop (l, e) = match mop, e with
 
   | M_MINUS, _ ->
-      compile_expr "%rax" (l, e);
+      compile_expr (l, e);
       p out "        negq    %%rax\n"
 
   | M_NOT, _ ->
-      compile_expr "%rax" (l, e);
+      compile_expr (l, e);
       p out "        notq    %%rax\n"
 
   | M_POST_INC, VAR s ->
@@ -184,34 +184,27 @@ let compile out decl_list =
   and push_args i = function
   | [] -> ()
   | e::t ->
-      if i < 6 then compile_expr arg_registers.(i) e
-      else compile_expr "STACK" e;
+      if i < 6 then compile_expr ~dest:arg_registers.(i) e
+      else (compile_expr e; p out "        pushq   %%rax");
       push_args (i-1) t
 
 
 
 
-  and compile_expr dest (_, e) = match e with
+  and compile_expr ?(dest="%rax") (_, e) = match e with
 
   | VAR s ->
-      if dest = "STACK" then p out "        pushq   %s\n" (var_location env s)
-      else p out "        movq    %s, %s\n" (var_location env s) dest
+      p out "        movq    %s, %s\n" (var_location env s) dest
 
   | CST n ->
-      if dest = "STACK" then p out "        pushq   $%d\n" n
-      else p out "        movq    $%d, %s\n" n dest
+      p out "        movq    $%d, %s\n" n dest
 
   | STRING s ->
-      let loc = string_location env s in
-      if dest = "STACK" then begin
-        p out "        leaq    %s, %%rax\n" loc;
-        p out "        pushq   %%rax\n"
-      end
-      else p out "        leaq    %s, %s\n" loc dest
+      p out "        leaq    %s, %s\n" (string_location env s) dest
 
   | SET_VAR (s, e) ->
-      compile_expr "%rax" e;
-      p out "        movq    %%rax, %s\n" (var_location env s)
+      compile_expr ~dest:dest e;
+      p out "        movq    %s, %s\n" dest (var_location env s);
 
   | CALL (s, lel) ->
       let n = List.length lel in
@@ -219,7 +212,8 @@ let compile out decl_list =
       push_args (n-1) (List.rev lel);
       if exists_function env s then p out "        call    %s\n" s
       else p out "        call    %s@PLT\n" s;
-      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)))
+      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)));
+      if dest != "%rax" then p out "        movq    %%rax, %s\n" dest
 
   | OP1 (mop, e) ->
       compile_mop mop e;
@@ -261,11 +255,11 @@ let compile out decl_list =
       begin
       match leo with
       | None -> ()
-      | Some e -> compile_expr "%rax" e
+      | Some e -> compile_expr e
       end;
       p out "        leave\n        ret\n"
 
-  | CEXPR e -> compile_expr "%rax" e
+  | CEXPR e -> compile_expr e
 
 
   | _ -> todo ("not cblock")

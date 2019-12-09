@@ -147,31 +147,50 @@ let compile out decl_list =
 
 
 
-  and compile_mop mop (l, e) = match mop, e with
+  and compile_mop mop e =
 
-  | M_MINUS, _ ->
-      compile_expr (l, e);
-      p out "        negq    %%rax\n"
+    compile_expr e;
 
-  | M_NOT, _ ->
-      compile_expr (l, e);
-      p out "        notq    %%rax\n"
+    let loc = match e with
+    | (_, VAR s) -> var_location env s
+    | _ -> "(%rdx)"
+    in
 
-  | M_POST_INC, VAR s ->
-      p out "        addq    $1, %s\n" (var_location env s)
+    match mop with
 
-  | M_POST_DEC, VAR s ->
-      p out "        subq    $1, %s\n" (var_location env s)
+    | M_MINUS -> p out "        negq    %%rax\n"
 
-  | M_PRE_INC, VAR s ->
-      p out "        addq    $1, %s\n" (var_location env s);
-      p out "        addq    $1, %%rax\n"
+    | M_NOT -> p out "        notq    %%rax\n"
 
-  | M_PRE_DEC, VAR s ->
-      p out "        subq    $1, %s\n" (var_location env s);
-      p out "        subq    $1, %%rax\n"
+    | M_POST_INC -> p out "        addq    $1, %s\n" loc
 
-  | _ -> todo "a[i]++ ?"
+    | M_POST_DEC -> p out "        subq    $1, %s\n" loc
+
+    | M_PRE_INC ->
+        p out "        addq    $1, %s\n" loc;
+        p out "        addq    $1, %%rax\n"
+
+    | M_PRE_DEC ->
+        p out "        subq    $1, %s\n" loc;
+        p out "        subq    $1, %%rax\n"
+
+
+
+
+  and compile_bop bop e1 e2 = match bop with
+
+  | S_INDEX ->
+      begin
+      match e1 with (_, VAR s) ->
+      compile_expr e2;
+      p out "        movq    %%rax, %%rdx\n";
+      p out "        imulq   $8, %%rdx\n";
+      p out "        addq    %s, %%rdx\n" (var_location env s);
+      p out "        movq    (%%rdx), %%rax\n"
+      | _ -> failwith "cas impossible"
+      end
+
+  | _ -> todo "compile_bop"
 
 
 
@@ -216,6 +235,15 @@ let compile out decl_list =
       compile_expr e;
       p out "        movq    %%rax, %s\n" (var_location env s);
 
+  | SET_ARRAY (s, i, e) ->
+      compile_expr i;
+      p out "        imulq   $8, %%rax\n";
+      p out "        addq    %s, %%rax\n" (var_location env s);
+      p out "        subq    $8, %%rsp\n        pushq   %%rax\n";
+      compile_expr e;
+      p out "        popq    %%rdx\n        addq    $8, %%rsp\n";
+      p out "        movq    %%rax, (%%rdx)\n"
+
   | CALL (s, lel) ->
       let n = List.length lel in
       (*on conserve l'alignement de %rsp sur 16 octets*)
@@ -227,6 +255,9 @@ let compile out decl_list =
 
   | OP1 (mop, e) ->
       compile_mop mop e;
+
+  | OP2 (bop, e1, e2) ->
+      compile_bop bop e1 e2;
 
   | _ -> todo "a completer"
 
@@ -246,9 +277,8 @@ let compile out decl_list =
       p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
 
       let n = List.length vdl in
-      (if n > 0 then
-        let offset = 8*(n + (n mod 2)) in
-        p out "        subq    $%d, %%rsp\n" offset);
+      if n > 0 then
+        p out "        subq    $%d, %%rsp\n" (8*(n+(n mod 2)));
       compile_decl_list false vdl;
       List.iteri pull_args vdl;
       if n mod 2 = 1 then new_empty_local_var env;
@@ -261,9 +291,8 @@ let compile out decl_list =
 
   | CBLOCK (vdl, lcl) ->
       let n = List.length vdl in
-      (if n > 0 then
-        let offset = 8*(n + (n mod 2)) in
-        p out "        subq    $%d, %%rsp\n" offset);
+      if n > 0 then
+        p out "        subq    $%d, %%rsp\n" (8*(n+(n mod 2)));
       compile_decl_list false vdl;
       if n mod 2 = 1 then new_empty_local_var env;
       List.iter compile_code lcl

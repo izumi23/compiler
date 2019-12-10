@@ -12,7 +12,7 @@ remplir ce giga patern matching*)
 
 
 
-
+(*Question: quelles fonctions retournent sur 64 bits?*)
 
 
 
@@ -25,7 +25,7 @@ remplir ce giga patern matching*)
 type environment = {
   mutable functions: string list;
 
-  mutable local_var_count: int;                 (*espace alloué sur la pile*)
+  mutable stack_size: int;                      (*espace alloué sur la pile*)
   mutable local_var: (string*int) option list;  (*emplacement de chaque variable*)
 
   mutable string_count: int;
@@ -38,18 +38,15 @@ type environment = {
 
 let new_environment () = {
   functions = [];
-  local_var_count = 0; local_var = [];
+  stack_size = 0; local_var = [];
   string_count = 0; strings = Hashtbl.create 8;
   if_count = 0; while_count = 0
 }
 
 
 let new_local_var env s =
-  env.local_var_count <- env.local_var_count + 1;
-  env.local_var <- Some (s, env.local_var_count) :: env.local_var
-
-let new_empty_local_var env =
-  env.local_var_count <- env.local_var_count + 1
+  env.stack_size <- env.stack_size + 1;
+  env.local_var <- Some (s, env.stack_size) :: env.local_var
 
 let var_location env s =
   let rec find_var s = function
@@ -58,6 +55,15 @@ let var_location env s =
   | _ :: l -> find_var s l
   in
   find_var s env.local_var
+
+let push env =
+  env.stack_size <- env.stack_size + 1
+
+let pop env =
+  env.stack_size <- env.stack_size - 1
+
+let stack_size_parity env =
+  env.stack_size mod 2
 
 
 let new_string env s =
@@ -75,7 +81,7 @@ let string_location env s =
 
 let new_function env s =
   env.functions <- s :: env.functions;
-  env.local_var_count <- 0;
+  env.stack_size <- 0;
   env.local_var <- []
 
 let exists_function env s = List.mem s env.functions
@@ -187,6 +193,8 @@ let compile out decl_list =
 
   and compile_bop bop e1 e2 = match bop with
 
+  | S_ADD
+
   | S_INDEX ->
       begin
       match e1 with (_, VAR s) ->
@@ -203,28 +211,30 @@ let compile out decl_list =
 
 
 
-  (*Appelé lors d'un CALL, compile les arguments donnés à la fonction appelée.
-  Pour cela on conserve dans i le rang du prochain argument à traiter.*)
+  and compile_call s lel =
 
-  and push_args i = function
-  | [] -> ()
-  | e::t ->
-      compile_expr e;
-      if i < 6 then p out "        movq    %%rax, %s\n" arg_registers.(i)
-      else p out "        pushq   %%rax\n";
-      push_args (i-1) t
+    let n = List.length lel in
+    let args_for_reg = min 6 n and args_to_push = max 0 (n-6) in
 
+    (*padding pour aligner %rsp sur 16 octets*)
+    let pad = (stack_size_parity env + args_to_push) mod 2 in
+    if pad = 1 then (p out "        subq    $8, %%rsp\n"; push env);
 
-  (*Lit l'argument numéro i d'une fonction*)
+    let eval_and_push e =
+      compile_expr e; p out "        pushq   %%rax\n"; push env
+    in
+    List.iter eval_and_push (List.rev lel);
 
-  and pull_args i s =
-    if i < 6 then
-      let r = arg_registers.(i) in
-      p out "        movq    %s, %d(%%rbp)\n" r (-8*(i+1))
-    else begin
-      p out "        movq    %d(%%rbp), %%rax\n" (8*(i-4));
-      p out "        movq    %%rax, %d(%%rbp)\n" (-8*(i+1))
-    end
+    for i = 0 to args_for_reg - 1 do
+      p out "        popq    %s\n" arg_registers.(i); pop env
+    done;
+
+    if exists_function env s then p out "        call    %s\n" s
+    else p out "        call    %s@PLT\n" s;
+
+    let size_diff = pad + args_to_push in
+    if size_diff > 0 then p out "        addq    $%d, %%rsp\n" (8*(size_diff))
+
 
 
 
@@ -244,22 +254,17 @@ let compile out decl_list =
       p out "        movq    %%rax, %s\n" (var_location env s);
 
   | SET_ARRAY (s, i, e) ->
-      compile_expr i;
-      p out "        imulq   $8, %%rax\n";
-      p out "        addq    %s, %%rax\n" (var_location env s);
-      p out "        subq    $8, %%rsp\n        pushq   %%rax\n";
       compile_expr e;
-      p out "        popq    %%rdx\n        addq    $8, %%rsp\n";
+      p out "        pushq   %%rax\n"; push env;
+      compile_expr i;
+      p out "        movq    %%rax, %%rdx\n";
+      p out "        imulq   $8, %%rdx\n";
+      p out "        addq    %s, %%rdx\n" (var_location env s);
+      p out "        popq    %%rax\n"; pop env;
       p out "        movq    %%rax, (%%rdx)\n"
 
   | CALL (s, lel) ->
-      let n = List.length lel in
-      (*on conserve l'alignement de %rsp sur 16 octets*)
-      if n > 6 && n mod 2 = 1 then p out "        subq    $8, %%rsp\n";
-      push_args (n-1) (List.rev lel);
-      if exists_function env s then p out "        call    %s\n" s
-      else p out "        call    %s@PLT\n" s;
-      if n > 6 then p out "        addq    $%d, %%rsp\n" (8*(n-6 + (n mod 2)))
+      compile_call s lel
 
   | OP1 (mop, e) ->
       compile_mop mop e;
@@ -269,6 +274,19 @@ let compile out decl_list =
 
   | _ -> todo "a completer"
 
+
+
+
+  (*Lit l'argument numéro i d'une fonction*)
+
+  and pull_args i s =
+    if i < 6 then
+      let r = arg_registers.(i) in
+      p out "        movq    %s, %d(%%rbp)\n" r (-8*(i+1))
+    else begin
+      p out "        movq    %d(%%rbp), %%rax\n" (8*(i-4));
+      p out "        movq    %%rax, %d(%%rbp)\n" (-8*(i+1))
+    end
 
 
 
@@ -285,11 +303,9 @@ let compile out decl_list =
       p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
 
       let n = List.length vdl in
-      if n > 0 then
-        p out "        subq    $%d, %%rsp\n" (8*(n+(n mod 2)));
+      if n > 0 then p out "        subq    $%d, %%rsp\n" (8*n);
       compile_decl_list false vdl;
       List.iteri pull_args vdl;
-      if n mod 2 = 1 then new_empty_local_var env;
       compile_code lc;
 
 
@@ -300,12 +316,11 @@ let compile out decl_list =
   | CBLOCK (vdl, lcl) ->
       new_block env;
       let n = List.length vdl in
-      if n > 0 then
-        p out "        subq    $%d, %%rsp\n" (8*(n+(n mod 2)));
+      if n > 0 then p out "        subq    $%d, %%rsp\n" (8*n);
       compile_decl_list false vdl;
-      if n mod 2 = 1 then new_empty_local_var env;
       List.iter compile_code lcl;
       exit_block env
+
 
   | CRETURN leo ->
       begin

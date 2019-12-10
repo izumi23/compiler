@@ -10,11 +10,6 @@ revenir sur ce buffer ctrl x o
 remplir ce giga patern matching*)
 
 
-(*Questions:
-- Quand utilise-t-on a[i]? (et notamment SET_ARRAY x[e1]=e2). En effet le type
-  int* n'existe pas
-- Une fonction peut-elle retourner un void? Sinon, à quoi sert return; ?*)
-
 
 
 
@@ -30,11 +25,11 @@ remplir ce giga patern matching*)
 type environment = {
   mutable functions: string list;
 
-  mutable local_var_count: int;           (*espace alloué sur la pile*)
-  local_var: (string, int) Hashtbl.t;     (*emplacement de chaque variable*)
+  mutable local_var_count: int;                 (*espace alloué sur la pile*)
+  mutable local_var: (string*int) option list;  (*emplacement de chaque variable*)
 
   mutable string_count: int;
-  strings: (string, int) Hashtbl.t;       (*label de chaque string*)
+  strings: (string, int) Hashtbl.t;             (*label de chaque string*)
 
   mutable if_count: int;
   mutable while_count: int
@@ -43,7 +38,7 @@ type environment = {
 
 let new_environment () = {
   functions = [];
-  local_var_count = 0; local_var = Hashtbl.create 8;
+  local_var_count = 0; local_var = [];
   string_count = 0; strings = Hashtbl.create 8;
   if_count = 0; while_count = 0
 }
@@ -51,16 +46,18 @@ let new_environment () = {
 
 let new_local_var env s =
   env.local_var_count <- env.local_var_count + 1;
-  Hashtbl.add env.local_var s env.local_var_count
+  env.local_var <- Some (s, env.local_var_count) :: env.local_var
 
 let new_empty_local_var env =
   env.local_var_count <- env.local_var_count + 1
 
 let var_location env s =
-  if Hashtbl.mem env.local_var s then
-    let i = Hashtbl.find env.local_var s in
-    Printf.sprintf "%d(%%rbp)" (-8*i)
-  else Printf.sprintf "%s(%%rip)" s
+  let rec find_var s = function
+  | [] -> Printf.sprintf "%s(%%rip)" s
+  | Some (s1, i) :: _ when s1 = s -> Printf.sprintf "%d(%%rbp)" (-8*i)
+  | _ :: l -> find_var s l
+  in
+  find_var s env.local_var
 
 
 let new_string env s =
@@ -79,10 +76,21 @@ let string_location env s =
 let new_function env s =
   env.functions <- s :: env.functions;
   env.local_var_count <- 0;
-  Hashtbl.reset env.local_var
+  env.local_var <- []
 
 let exists_function env s = List.mem s env.functions
 
+
+let new_block env =
+  env.local_var <- None :: env.local_var
+
+let exit_block env =
+  let rec del_var = function
+  | None :: l -> l
+  | Some _ :: l -> del_var l
+  | _ -> failwith "exit_block"
+  in
+  env.local_var <- del_var env.local_var
 
 
 
@@ -187,7 +195,7 @@ let compile out decl_list =
       p out "        imulq   $8, %%rdx\n";
       p out "        addq    %s, %%rdx\n" (var_location env s);
       p out "        movq    (%%rdx), %%rax\n"
-      | _ -> failwith "cas impossible"
+      | _ -> failwith "dans a[i], a doit être une variable"
       end
 
   | _ -> todo "compile_bop"
@@ -290,12 +298,14 @@ let compile out decl_list =
   and compile_code (_,c) = match c with
 
   | CBLOCK (vdl, lcl) ->
+      new_block env;
       let n = List.length vdl in
       if n > 0 then
         p out "        subq    $%d, %%rsp\n" (8*(n+(n mod 2)));
       compile_decl_list false vdl;
       if n mod 2 = 1 then new_empty_local_var env;
-      List.iter compile_code lcl
+      List.iter compile_code lcl;
+      exit_block env
 
   | CRETURN leo ->
       begin

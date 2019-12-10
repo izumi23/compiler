@@ -1,17 +1,17 @@
+compile.cmi : cparse.cmi
+cparse.cmi : error.cmo
+cprint.cmi : cparse.cmi
+ctab.cmi : cparse.cmi
 clex.cmo : error.cmo ctab.cmi cparse.cmi
 clex.cmx : error.cmx ctab.cmx cparse.cmx
 compile.cmo : genlab.cmo cparse.cmi compile.cmi
 compile.cmx : genlab.cmx cparse.cmx compile.cmi
-compile.cmi : cparse.cmi
 cparse.cmo : error.cmo cparse.cmi
 cparse.cmx : error.cmx cparse.cmi
-cparse.cmi : error.cmo
 cprint.cmo : cparse.cmi cprint.cmi
 cprint.cmx : cparse.cmx cprint.cmi
-cprint.cmi : cparse.cmi
 ctab.cmo : error.cmo cparse.cmi ctab.cmi
 ctab.cmx : error.cmx cparse.cmx ctab.cmi
-ctab.cmi : cparse.cmi
 error.cmo :
 error.cmx :
 genlab.cmo :

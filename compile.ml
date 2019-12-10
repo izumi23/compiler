@@ -152,6 +152,7 @@ let compile out decl_list =
 
 
 
+
   (*Fonctions principales qui compilent le code*)
 
 
@@ -193,8 +194,6 @@ let compile out decl_list =
 
   and compile_bop bop e1 e2 = match bop with
 
-  | S_ADD
-
   | S_INDEX ->
       begin
       match e1 with (_, VAR s) ->
@@ -206,7 +205,22 @@ let compile out decl_list =
       | _ -> failwith "dans a[i], a doit être une variable"
       end
 
-  | _ -> todo "compile_bop"
+  | _ ->
+      compile_expr e2;
+      p out "        pushq   %%rax\n"; push env;
+      compile_expr e1;
+      p out "        popq    %%rcx\n"; pop env;
+
+      match bop with
+      | S_ADD -> p out "        addq    %%rcx, %%rax\n"
+      | S_SUB -> p out "        subq    %%rcx, %%rax\n"
+      | S_MUL -> p out "        imulq   %%rcx, %%rax\n"
+      | S_DIV -> p out "        cqto\n        idivq   %%rcx\n"
+      | S_MOD -> p out "        cqto\n        idivq   %%rcx\n";
+                 p out "        movq    %%rdx, %%rax\n"
+      | _ -> failwith "cas impossible"
+
+
 
 
 

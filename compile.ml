@@ -1,19 +1,6 @@
 open Cparse
 open Genlab
 
-(*Pour bien coder:
-se ramener à un seul  buffer ctrl x 1
-ouvrir un deuxième buffer ctrl x 3
-aller dessus ctrl x o
-ouvrir le fichier cparse.mli ctrl x ctrl f
-revenir sur ce buffer ctrl x o
-remplir ce giga patern matching*)
-
-
-
-
-(*Question: quelles fonctions retournent sur 64 bits?*)
-
 
 
 
@@ -32,7 +19,8 @@ type environment = {
   strings: (string, int) Hashtbl.t;             (*label de chaque string*)
 
   mutable if_count: int;
-  mutable while_count: int
+  mutable while_count: int;
+  mutable cmp_count: int
 }
 
 
@@ -40,7 +28,7 @@ let new_environment () = {
   functions = [];
   stack_size = 0; local_var = [];
   string_count = 0; strings = Hashtbl.create 8;
-  if_count = 0; while_count = 0
+  if_count = 0; while_count = 0; cmp_count = 0
 }
 
 
@@ -79,6 +67,14 @@ let string_location env s =
   Printf.sprintf ".LC%d(%%rip)" (Hashtbl.find env.strings s)
 
 
+let if_count env = env.if_count
+let while_count env = env.while_count
+let cmp_count env = env.cmp_count
+let incr_if_count env = env.if_count <- env.if_count + 1
+let incr_while_count env = env.while_count <- env.while_count + 1
+let incr_cmp_count env = env.cmp_count <- env.cmp_count + 1
+
+
 let new_function env s =
   env.functions <- s :: env.functions;
   env.stack_size <- 0;
@@ -112,6 +108,7 @@ let compile out decl_list =
   let todo s = Printf.fprintf out "#TODO %s\n" s in
   let p = Printf.fprintf in
   let arg_registers = [|"%rdi"; "%rsi"; "%rdx"; "%rcx"; "%r8"; "%r9"|] in
+  let quad_functions = ["malloc"; "realloc"; "exit"; "fopen"; "printf"] in
   let env = new_environment () in
 
 
@@ -128,8 +125,9 @@ let compile out decl_list =
   and first_code (_, c) = match c with
   | CBLOCK (_, lcl) -> List.iter first_code lcl
   | CEXPR e -> first_expr e
-  | CIF (_, c1, c2) -> first_code c1; first_code c2
-  | CWHILE (_, c) -> first_code c
+  | CIF (e, c1, c2) -> first_expr e; first_code c1; first_code c2
+  | CWHILE (e, c) -> first_expr e; first_code c
+  | CRETURN (Some e) -> first_expr e
   | _ -> ()
 
   and first_expr (_, e) = match e with
@@ -141,8 +139,13 @@ let compile out decl_list =
       p out ".LC%d:\n        .string %S\n" (string_count env) s;
       new_string env s
 
+  | SET_VAR (_, e) -> first_expr e
+  | SET_ARRAY (_, e1, e2) -> first_expr e1; first_expr e2;
   | CALL (_, lel) -> List.iter first_expr lel
-  | EIF (_, e1, e2) -> first_expr e1; first_expr e2
+  | OP1 (_, e) -> first_expr e
+  | OP2 (_, e1, e2) -> first_expr e1; first_expr e2
+  | CMP (_, e1, e2) -> first_expr e1; first_expr e2
+  | EIF (e1, e2, e3) -> first_expr e1; first_expr e2; first_expr e3
   | ESEQ lel -> List.iter first_expr lel
   | _ -> ()
 
@@ -162,7 +165,7 @@ let compile out decl_list =
 
 
 
-  and compile_mop mop e =
+  and compile_mon_op mop e =
 
     compile_expr e;
 
@@ -192,7 +195,7 @@ let compile out decl_list =
 
 
 
-  and compile_bop bop e1 e2 = match bop with
+  and compile_bin_op bop e1 e2 = match bop with
 
   | S_INDEX ->
       begin
@@ -223,6 +226,35 @@ let compile out decl_list =
 
 
 
+  and compile_cmp_op jump_dest cop e1 e2 =
+
+    compile_expr e2;
+    p out "        pushq   %%rax\n"; push env;
+    compile_expr e1;
+    p out "        popq    %%rdx\n"; pop env;
+    p out "        cmpq    %%rdx, %%rax\n";
+
+    match cop with
+    (*le contraire de l'opération demandée, pour sauter vers le cas où
+      la comparaison retourne faux*)
+    | C_LT -> p out "        jge     %s\n" jump_dest
+    | C_LE -> p out "        jg      %s\n" jump_dest
+    | C_EQ -> p out "        jne     %s\n" jump_dest
+
+
+
+  and compile_bool jump_dest e = match e with
+
+  | (_, CMP (cop, e1, e2)) ->
+      compile_cmp_op jump_dest cop e1 e2
+
+  | _ ->
+      compile_expr e;
+      p out "        cmpq    $0, %%rax\n";
+      p out "        je      %s\n" jump_dest
+
+
+
 
 
   and compile_call s lel =
@@ -243,11 +275,15 @@ let compile out decl_list =
       p out "        popq    %s\n" arg_registers.(i); pop env
     done;
 
-    if exists_function env s then p out "        call    %s\n" s
+    let exists = exists_function env s in
+    if exists then p out "        call    %s\n" s
     else p out "        call    %s@PLT\n" s;
+    if not (exists || List.mem s quad_functions) then p out "        cltq\n";
+
 
     let size_diff = pad + args_to_push in
-    if size_diff > 0 then p out "        addq    $%d, %%rsp\n" (8*(size_diff))
+    if size_diff > 0 then p out "        addq    $%d, %%rsp\n" (8*(size_diff));
+    for i = 0 to size_diff - 1 do pop env done
 
 
 
@@ -281,10 +317,22 @@ let compile out decl_list =
       compile_call s lel
 
   | OP1 (mop, e) ->
-      compile_mop mop e;
+      compile_mon_op mop e
 
   | OP2 (bop, e1, e2) ->
-      compile_bop bop e1 e2;
+      compile_bin_op bop e1 e2
+
+  | CMP (cop, e1, e2) ->
+      let cmpc = cmp_count env in
+      incr_cmp_count env;
+      let cmp_label = Printf.sprintf ".CMP%d" cmpc in
+      let cmp_end_label = Printf.sprintf ".CEND%d" cmpc in
+      compile_cmp_op cmp_label cop e1 e2;
+      p out "        movq    $1, %%rax\n";
+      p out "        jmp     %s\n" cmp_end_label;
+      p out "%s:\n" cmp_label;
+      p out "        movq    $0, %%rax\n";
+      p out "%s:\n" cmp_end_label
 
   | _ -> todo "a completer"
 
@@ -335,6 +383,22 @@ let compile out decl_list =
       List.iter compile_code lcl;
       exit_block env
 
+  | CEXPR e -> compile_expr e
+
+  | CIF (e, c1, c2) ->
+      let ifc = if_count env in
+      incr_if_count env;
+      let else_label = Printf.sprintf "ELSE%d" ifc in
+      let end_label = Printf.sprintf "END%d" ifc in
+      p out "IF%d:\n" ifc;    (*sert juste à clarifier le code*)
+      compile_bool else_label e;
+      p out "THEN%d:\n" ifc;  (*aussi*)
+      compile_code c1;
+      p out "        jmp     %s\n" end_label;
+      p out "%s:\n" else_label;
+      compile_code c2;
+      p out "%s:\n" end_label
+
 
   | CRETURN leo ->
       begin
@@ -343,9 +407,6 @@ let compile out decl_list =
       | Some e -> compile_expr e
       end;
       p out "        leave\n        ret\n"
-
-  | CEXPR e -> compile_expr e
-
 
   | _ -> todo ("not cblock")
 

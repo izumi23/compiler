@@ -385,6 +385,7 @@ let compile out decl_list =
 
   | CEXPR e -> compile_expr e
 
+
   | CIF (e, c1, c2) ->
       let ifc = if_count env in
       incr_if_count env;
@@ -400,6 +401,19 @@ let compile out decl_list =
       p out "%s:\n" end_label
 
 
+  | CWHILE (e, c) ->
+      let whc = while_count env in
+      incr_while_count env;
+      let while_label = Printf.sprintf "WHILE%d" whc in
+      let done_label = Printf.sprintf "DONE%d" whc in
+      p out "%s:\n" while_label;
+      compile_bool done_label e;
+      p out "DO%d:\n" whc;  (*pour clarifier le code*)
+      compile_code c;
+      p out "        jmp     %s\n" while_label;
+      p out "%s:\n" done_label
+
+
   | CRETURN leo ->
       begin
       match leo with
@@ -407,8 +421,6 @@ let compile out decl_list =
       | Some e -> compile_expr e
       end;
       p out "        leave\n        ret\n"
-
-  | _ -> todo ("not cblock")
 
 
 

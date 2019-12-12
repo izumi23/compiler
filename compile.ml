@@ -4,7 +4,6 @@ open Genlab
 
 
 
-
 (*___________________________Le type environnement_________________________*)
 
 
@@ -76,14 +75,16 @@ let incr_cmp_count env = env.cmp_count <- env.cmp_count + 1
 
 
 let new_function env s =
-  env.functions <- s :: env.functions;
+  env.functions <- s :: env.functions
+
+let enter_function env =
   env.stack_size <- 0;
   env.local_var <- []
 
 let exists_function env s = List.mem s env.functions
 
 
-let new_block env =
+let enter_block env =
   env.local_var <- None :: env.local_var
 
 let exit_block env =
@@ -98,6 +99,9 @@ let exit_block env =
 
 
 
+
+
+
 (*___________________________La fonction principale___________________________*)
 
 
@@ -105,22 +109,21 @@ let exit_block env =
 let compile out decl_list =
 
 
-  let todo s = Printf.fprintf out "#TODO %s\n" s in
   let p = Printf.fprintf in
   let arg_registers = [|"%rdi"; "%rsi"; "%rdx"; "%rcx"; "%r8"; "%r9"|] in
-  let quad_functions = ["malloc"; "realloc"; "exit"; "fopen"; "printf"] in
+  let quad_functions = ["malloc"; "realloc"; "exit"; "fopen"] in
   let env = new_environment () in
 
 
 
-
-  (*Fonctions pour une première lecture, pour stocker les chaînes de caractères*)
+  (*Fonctions pour une première lecture, pour stocker les chaînes de caractères
+    et les noms des fonctions*)
 
   let rec first_decl_list lcl = List.iter first_decl lcl
 
   and first_decl = function
   | CDECL _ -> ()
-  | CFUN (_, _, _, lc) -> first_code lc
+  | CFUN (_, s, _, lc) -> new_function env s; first_code lc
 
   and first_code (_, c) = match c with
   | CBLOCK (_, lcl) -> List.iter first_code lcl
@@ -132,15 +135,13 @@ let compile out decl_list =
 
   and first_expr (_, e) = match e with
 
-  (*le seul cas important!*)
-
   | STRING s when not (exists_string env s) ->
-      p out "        .align 8\n";
+      p out "        .align 4\n";
       p out ".LC%d:\n        .string %S\n" (string_count env) s;
       new_string env s
 
   | SET_VAR (_, e) -> first_expr e
-  | SET_ARRAY (_, e1, e2) -> first_expr e1; first_expr e2;
+  | SET_ARRAY (_, e1, e2) -> first_expr e1; first_expr e2
   | CALL (_, lel) -> List.iter first_expr lel
   | OP1 (_, e) -> first_expr e
   | OP2 (_, e1, e2) -> first_expr e1; first_expr e2
@@ -156,7 +157,9 @@ let compile out decl_list =
 
 
 
+
   (*Fonctions principales qui compilent le code*)
+
 
 
   let rec compile_decl_list globl = function
@@ -168,30 +171,35 @@ let compile out decl_list =
   and compile_mon_op mop e =
 
     compile_expr e;
-
-    let loc = match e with
-    | (_, VAR s) -> var_location env s
-    | _ -> "(%rdx)"
+    let loc = match snd e with
+    | VAR s -> var_location env s
+    | _ -> "(%rdx)" (*la compilation de a[i] laisse son adresse dans %rdx*)
     in
 
     match mop with
-
-    | M_MINUS -> p out "        negq    %%rax\n"
-
-    | M_NOT -> p out "        notq    %%rax\n"
-
+    | M_MINUS ->    p out "        negq    %%rax\n"
+    | M_NOT ->      p out "        notq    %%rax\n"
     | M_POST_INC -> p out "        addq    $1, %s\n" loc
-
     | M_POST_DEC -> p out "        subq    $1, %s\n" loc
+    | M_PRE_INC ->  p out "        addq    $1, %s\n" loc;
+                    p out "        addq    $1, %%rax\n"
+    | M_PRE_DEC ->  p out "        subq    $1, %s\n" loc;
+                    p out "        subq    $1, %%rax\n"
 
-    | M_PRE_INC ->
-        p out "        addq    $1, %s\n" loc;
-        p out "        addq    $1, %%rax\n"
 
-    | M_PRE_DEC ->
-        p out "        subq    $1, %s\n" loc;
-        p out "        subq    $1, %%rax\n"
 
+  and compile_two_expr e1 e2 =
+
+    (*petite optimisation pour n'utiliser la pile que lorsque nécessaire*)
+    compile_expr e2;
+    match snd e1 with
+    | VAR _ | CST _ | STRING _ ->
+        p out "        movq    %%rax, %%rcx\n";
+        compile_expr e1
+    | _ ->
+      p out "        pushq   %%rax\n"; push env;
+      compile_expr e1;
+      p out "        popq    %%rcx\n"; pop env
 
 
 
@@ -209,11 +217,7 @@ let compile out decl_list =
       end
 
   | _ ->
-      compile_expr e2;
-      p out "        pushq   %%rax\n"; push env;
-      compile_expr e1;
-      p out "        popq    %%rcx\n"; pop env;
-
+      compile_two_expr e1 e2;
       match bop with
       | S_ADD -> p out "        addq    %%rcx, %%rax\n"
       | S_SUB -> p out "        subq    %%rcx, %%rax\n"
@@ -228,11 +232,8 @@ let compile out decl_list =
 
   and compile_cmp_op jump_dest cop e1 e2 =
 
-    compile_expr e2;
-    p out "        pushq   %%rax\n"; push env;
-    compile_expr e1;
-    p out "        popq    %%rdx\n"; pop env;
-    p out "        cmpq    %%rdx, %%rax\n";
+    compile_two_expr e1 e2;
+    p out "        cmpq    %%rcx, %%rax\n";
 
     match cop with
     (*le contraire de l'opération demandée, pour sauter vers le cas où
@@ -243,16 +244,17 @@ let compile out decl_list =
 
 
 
-  and compile_bool jump_dest e = match e with
 
-  | (_, CMP (cop, e1, e2)) ->
+  and compile_bool jump_dest e = match snd e with
+
+  (*petite optimisation lorsque le booléen est une comparaison*)
+  | CMP (cop, e1, e2) ->
       compile_cmp_op jump_dest cop e1 e2
 
   | _ ->
       compile_expr e;
       p out "        cmpq    $0, %%rax\n";
       p out "        je      %s\n" jump_dest
-
 
 
 
@@ -334,7 +336,22 @@ let compile out decl_list =
       p out "        movq    $0, %%rax\n";
       p out "%s:\n" cmp_end_label
 
-  | _ -> todo "a completer"
+  | EIF (e1, e2, e3) ->
+      let ifc = if_count env in
+      incr_if_count env;
+      let else_label = Printf.sprintf ".ELSE%d" ifc in
+      let end_label = Printf.sprintf ".END%d" ifc in
+      p out ".IF%d:\n" ifc;    (*sert juste à clarifier le code*)
+      compile_bool else_label e1;
+      p out ".THEN%d:\n" ifc;  (*aussi*)
+      compile_expr e2;
+      p out "        jmp     %s\n" end_label;
+      p out "%s:\n" else_label;
+      compile_expr e3;
+      p out "%s:\n" end_label
+
+  | ESEQ lel ->
+      List.iter compile_expr lel
 
 
 
@@ -359,7 +376,7 @@ let compile out decl_list =
       else new_local_var env s
 
   | CFUN (_, s, vdl, lc) ->
-      new_function env s;
+      enter_function env;
       p out "        .globl  %s\n" s;
       p out "        .type   %s, @function\n%s:\n" s s;
       p out "        pushq   %%rbp\n        movq    %%rsp, %%rbp\n";
@@ -376,12 +393,13 @@ let compile out decl_list =
   and compile_code (_,c) = match c with
 
   | CBLOCK (vdl, lcl) ->
-      new_block env;
+      enter_block env;
       let n = List.length vdl in
       if n > 0 then p out "        subq    $%d, %%rsp\n" (8*n);
       compile_decl_list false vdl;
       List.iter compile_code lcl;
       exit_block env
+
 
   | CEXPR e -> compile_expr e
 
@@ -389,11 +407,11 @@ let compile out decl_list =
   | CIF (e, c1, c2) ->
       let ifc = if_count env in
       incr_if_count env;
-      let else_label = Printf.sprintf "ELSE%d" ifc in
-      let end_label = Printf.sprintf "END%d" ifc in
-      p out "IF%d:\n" ifc;    (*sert juste à clarifier le code*)
+      let else_label = Printf.sprintf ".ELSE%d" ifc in
+      let end_label = Printf.sprintf ".END%d" ifc in
+      p out ".IF%d:\n" ifc;    (*sert juste à clarifier le code*)
       compile_bool else_label e;
-      p out "THEN%d:\n" ifc;  (*aussi*)
+      p out ".THEN%d:\n" ifc;  (*aussi*)
       compile_code c1;
       p out "        jmp     %s\n" end_label;
       p out "%s:\n" else_label;
@@ -404,11 +422,11 @@ let compile out decl_list =
   | CWHILE (e, c) ->
       let whc = while_count env in
       incr_while_count env;
-      let while_label = Printf.sprintf "WHILE%d" whc in
-      let done_label = Printf.sprintf "DONE%d" whc in
+      let while_label = Printf.sprintf ".WHILE%d" whc in
+      let done_label = Printf.sprintf ".DONE%d" whc in
       p out "%s:\n" while_label;
       compile_bool done_label e;
-      p out "DO%d:\n" whc;  (*pour clarifier le code*)
+      p out ".DO%d:\n" whc;  (*pour clarifier le code*)
       compile_code c;
       p out "        jmp     %s\n" while_label;
       p out "%s:\n" done_label

@@ -386,6 +386,7 @@ let compile out decl_list =
       compile_decl_list false vdl;
       List.iteri pull_args vdl;
       compile_code lc;
+      p out "        leave\n        ret\n"
 
 
 

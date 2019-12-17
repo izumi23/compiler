@@ -399,6 +399,7 @@ let compile out decl_list =
       if n > 0 then p out "        subq    $%d, %%rsp\n" (8*n);
       compile_decl_list false vdl;
       List.iter compile_code lcl;
+      if n > 0 then p out "        addq    $%d, %%rsp\n" (8*n);
       exit_block env
 
 

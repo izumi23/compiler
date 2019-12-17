@@ -88,12 +88,14 @@ let enter_block env =
   env.local_var <- None :: env.local_var
 
 let exit_block env =
-  let rec del_var = function
-  | None :: l -> l
-  | Some _ :: l -> del_var l
+  let rec del_var i = function
+  | None :: l -> i, l
+  | Some _ :: l -> del_var (i+1) l
   | _ -> failwith "exit_block"
   in
-  env.local_var <- del_var env.local_var
+  let i, l = del_var 0 env.local_var in
+  env.local_var <- l;
+  env.stack_size <- env.stack_size - i
 
 
 
